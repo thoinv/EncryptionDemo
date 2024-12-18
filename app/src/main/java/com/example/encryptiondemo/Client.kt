@@ -1,48 +1,45 @@
-import com.google.gson.Gson
-import java.security.KeyFactory
-import java.security.spec.X509EncodedKeySpec
-import javax.crypto.Cipher
-import javax.crypto.SecretKey
-import javax.crypto.spec.SecretKeySpec
-import android.util.Base64
 import com.example.encryptiondemo.DebugLog
+import com.example.encryptiondemo.EncryptedPayload
+import com.example.encryptiondemo.decodeBase64
+import com.example.encryptiondemo.encodeBase64
+import java.security.PublicKey
+import javax.crypto.SecretKey
 
-class Client {
 
-    // 1. Giải mã AES Key bằng RSA Public Key
-    fun decryptAESKey(encryptedAESKey: String, serverPublicKey: String): SecretKey {
-        val keyFactory = KeyFactory.getInstance("RSA")
-        val publicKeySpec = X509EncodedKeySpec(Base64.decode(serverPublicKey, Base64.DEFAULT))
-        val rsaPublicKey = keyFactory.generatePublic(publicKeySpec)
+class Client(private val serverPublicKey: PublicKey) {
+    private lateinit var aesKey: SecretKey // Giữ lại khóa AES cho phản hồi, có thể kết hợp sử dung cơ chế gen bằng keystore với Android version >= 23
 
-        val cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding")
-        cipher.init(Cipher.DECRYPT_MODE, rsaPublicKey)
-        val decodedAESKey = cipher.doFinal(Base64.decode(encryptedAESKey, Base64.DEFAULT))
+    fun sendData(clientMessage: String): String {
+        DebugLog.logi("     Client: Tạo khóa AES")
+        aesKey = EncryptionUtils.generateAESKey()
 
-        return SecretKeySpec(decodedAESKey, "AES")
+        DebugLog.logi("     Client: Mã hóa khóa AES bằng RSA public key của server")
+        val encryptedAesKey = EncryptionUtils.encryptAESKeyWithRSA(aesKey, serverPublicKey)
+
+        DebugLog.logi("     Client: Mã hóa dữ liệu bằng AES")
+        val (encryptedData, iv) = EncryptionUtils.encryptDataWithAES(clientMessage, aesKey)
+
+        DebugLog.logi("     Client: Tạo payload dạng JSON")
+        val payload = EncryptedPayload(
+            encryptedAesKey = encryptedAesKey.encodeBase64(),
+            encryptedData = encryptedData.encodeBase64(),
+            iv = iv.encodeBase64()
+        )
+        return EncryptionUtils.toJson(payload)
     }
 
-    // 2. Giải mã dữ liệu bằng AES Key
-    fun decryptData(encryptedData: String, aesKey: SecretKey): String {
-        val cipher = Cipher.getInstance("AES")
-        cipher.init(Cipher.DECRYPT_MODE, aesKey)
-        val decryptedData = cipher.doFinal(Base64.decode(encryptedData, Base64.DEFAULT))
-        return String(decryptedData)
-    }
+    fun processServerResponse(jsonResponse: String) {
+        DebugLog.logi("     Giải mã JSON payload nhận được từ Server")
+        val responsePayload: EncryptedResponse = EncryptionUtils.fromJson(jsonResponse)
 
-    fun handleServerResponse(jsonResponse: String) {
-        val responseMap = Gson().fromJson(jsonResponse, Map::class.java)
+        DebugLog.logi("     Giải mã dữ liệu từ AES")
+        val decryptedResponse = EncryptionUtils.decryptDataWithAES(
+            responsePayload.encryptedData.decodeBase64(),
+            aesKey,
+            responsePayload.iv.decodeBase64()
+        )
 
-        val encryptedAESKey = responseMap["encryptedAESKey"] as String
-        val encryptedData = responseMap["encryptedData"] as String
-        val serverPublicKey = responseMap["serverPublicKey"] as String
-
-        DebugLog.logi("Giải mã AES Key")
-        val aesKey = decryptAESKey(encryptedAESKey, serverPublicKey)
-        DebugLog.logd("AES Key đã giải mã: ${Base64.encodeToString(aesKey.encoded, Base64.DEFAULT)}")
-
-        DebugLog.logi("Giải mã dữ liệu")
-        val decryptedData = decryptData(encryptedData, aesKey)
-        DebugLog.logd("Dữ liệu giải mã từ Server: $decryptedData")
+        DebugLog.logi("     Hiển thị phản hồi từ Server")
+        DebugLog.logd("Client received: $decryptedResponse")
     }
 }

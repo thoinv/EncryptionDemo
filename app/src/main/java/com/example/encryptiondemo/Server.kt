@@ -1,54 +1,51 @@
-import android.util.Base64
-import java.security.KeyPair
-import java.security.KeyPairGenerator
-import javax.crypto.Cipher
-import javax.crypto.SecretKey
-import javax.crypto.spec.SecretKeySpec
+import com.example.encryptiondemo.DebugLog
+import com.example.encryptiondemo.EncryptedPayload
+import com.example.encryptiondemo.decodeBase64
+import com.example.encryptiondemo.encodeBase64
+import java.security.PublicKey
+
+data class EncryptedResponse(
+    val encryptedData: String,
+    val iv: String
+)
+
 
 class Server {
+    private val keyPair = EncryptionUtils.generateRSAKeyPair()
+    val publicKey: PublicKey = keyPair.public
+    private val privateKey = keyPair.private
 
-    private val aesKey: SecretKey = generateAESKey()
-    private val rsaKeyPair: KeyPair = generateRSAKeyPair()
-
-    // 1. Tạo cặp khóa RSA
-    private fun generateRSAKeyPair(): KeyPair {
-        val keyGen = KeyPairGenerator.getInstance("RSA")
-        keyGen.initialize(2048)
-        return keyGen.generateKeyPair()
+    fun getPublicKeyString(): String {
+        return EncryptionUtils.publicKeyToString(publicKey)
     }
 
-    // 2. Tạo AES Key
-    private fun generateAESKey(): SecretKey {
-        val keyBytes = "1234567890123456".toByteArray()
-        return SecretKeySpec(keyBytes, "AES")
-    }
+    fun processClientRequest(jsonString: String): String {
+        DebugLog.logi("     Server: Giải mã JSON payload")
+        val payload: EncryptedPayload = EncryptionUtils.fromJson(jsonString)
 
-    // 3. Mã hóa dữ liệu bằng AES Key
-    private fun encryptData(data: String): String {
-        val cipher = Cipher.getInstance("AES")
-        cipher.init(Cipher.ENCRYPT_MODE, aesKey)
-        val encryptedData = cipher.doFinal(data.toByteArray())
-        return Base64.encodeToString(encryptedData, Base64.DEFAULT)
-    }
-
-    // 4. Mã hóa AES Key bằng RSA Private Key
-    private fun encryptAESKeyWithRSA(): String {
-        val cipher = Cipher.getInstance("RSA/ECB/PKCS1Padding")
-        cipher.init(Cipher.ENCRYPT_MODE, rsaKeyPair.private)
-        val encryptedAESKey = cipher.doFinal(aesKey.encoded)
-        return Base64.encodeToString(encryptedAESKey, Base64.DEFAULT)
-    }
-
-    // 5. Gửi Public Key cho Client và dữ liệu JSON
-    fun handleRequest(): Map<String, String> {
-        val encryptedData = encryptData("Dữ liệu phản hồi từ Server!")
-        val encryptedAESKey = encryptAESKeyWithRSA()
-        val serverPublicKey = Base64.encodeToString(rsaKeyPair.public.encoded, Base64.DEFAULT)
-
-        return mapOf(
-            "encryptedData" to encryptedData,
-            "encryptedAESKey" to encryptedAESKey,
-            "serverPublicKey" to serverPublicKey
+        DebugLog.logi("     Server: Giải mã khóa AES bằng RSA private key")
+        val aesKey = EncryptionUtils.decryptAESKeyWithRSA(
+            payload.encryptedAesKey.decodeBase64(),
+            privateKey
         )
+
+        DebugLog.logi("     Server: Giải mã dữ liệu từ AES đã được giải mã bằng RSA private key")
+        val decryptedData = EncryptionUtils.decryptDataWithAES(
+            payload.encryptedData.decodeBase64(),
+            aesKey,
+            payload.iv.decodeBase64()
+        )
+
+        DebugLog.logi("Server received: $decryptedData")
+        DebugLog.logi("4. Tạo phản hồi và mã hóa bằng AES")
+        val response = "Hello, i'm Server. Have a nice day! Message from client: $decryptedData"
+        val (encryptedResponse, responseIv) = EncryptionUtils.encryptDataWithAES(response, aesKey)
+
+        DebugLog.logi("5. Trả về JSON string chứa phản hồi")
+        val encryptedResponsePayload = EncryptedResponse(
+            encryptedData = encryptedResponse.encodeBase64(),
+            iv = responseIv.encodeBase64()
+        )
+        return EncryptionUtils.toJson(encryptedResponsePayload)
     }
 }
