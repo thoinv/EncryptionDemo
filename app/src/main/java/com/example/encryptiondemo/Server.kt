@@ -20,7 +20,7 @@ class Server {
     }
 
     fun processClientRequest(jsonString: String): String {
-        DebugLog.logi("     Server: Giải mã JSON payload")
+        DebugLog.logi("     Server: Parse JSON payload to object")
         val payload: EncryptedPayload = EncryptionUtils.fromJson(jsonString)
 
         DebugLog.logi("     Server: Giải mã khóa AES bằng RSA private key")
