@@ -32,11 +32,12 @@ class MainActivity : AppCompatActivity() {
         }
         val edMessage = findViewById<EditText>(R.id.ed_message)
 
+        DebugLog.logi("Server generate RSA keypair")
         server = Server()
 
-        DebugLog.logi("1. Request đến server để lấy public key dạng string")
+        DebugLog.logi("1. Client request đến server để lấy public key dạng string")
         val rsaPublicKeyStringFromServer = server.getPublicKeyString()
-        DebugLog.logd("Nhận được public key từ server: \n$rsaPublicKeyStringFromServer ")
+        DebugLog.logd("Client Nhận được public key từ server: \n$rsaPublicKeyStringFromServer\nClient lưu trữ vào bộ nhớ để tái sử dung cho các lần request sau")
 
         findViewById<View>(R.id.bt_send).setOnClickListener {
             tvMessage.text = ""
